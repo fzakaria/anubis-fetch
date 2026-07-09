@@ -1,0 +1,10 @@
+# Nix build symlinks
+/result
+/result-*
+
+# Local Go build output
+/anubis-fetch
+*.out
+
+# direnv
+/.direnv/
