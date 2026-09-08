@@ -78,9 +78,18 @@ GET /.within.website/x/cmd/anubis/api/pass-challenge?id=...&response=<hash>&nonc
 A successful response sets an auth cookie and redirects to the requested
 page. Difficulty 4 requires about 65,536 hashes on average.
 
-WASM challenges use the same submission endpoint, but the downloaded module
-defines the hash and difficulty rules. Their difficulty numbers are not
-directly comparable to the legacy SHA-256 method.
+### WASM challenges
+
+For `sha256`, `argon2id`, and `hashx`, Anubis serves a WebAssembly module
+that implements the proof of work. `anubis-fetch` downloads the module,
+decodes the challenge's hex data into bytes, and passes the data and
+difficulty to the module. The module searches for a nonce and returns
+the nonce and hash for submission to the same endpoint above.
+
+The module runs inside the Go process using wazero, so these methods work
+with `--no-browser`. Execution has memory and time limits. The module
+defines the difficulty rules; WASM difficulty numbers are not directly
+comparable to the legacy SHA-256 method.
 
 ## Installation
 
