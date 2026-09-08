@@ -5,5 +5,7 @@
 }: {
   # buildGoModule runs the CLI's Go tests during the package build.
   package = pkgs.anubis-fetch;
+  anubis = pkgs.anubis;
+
   formatting = treefmt.config.build.check self;
 }

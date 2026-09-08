@@ -16,14 +16,14 @@
     ...
   }:
     {
-      overlays.default = import ./nix/overlay.nix {inherit self;};
+      overlays.default = import ./nix/overlay.nix;
     }
     // flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import ./nix/pkgs.nix {inherit self system;};
       treefmt = import ./nix/formatter.nix {inherit self pkgs;};
     in {
       packages = {
-        inherit (pkgs) anubis-fetch;
+        inherit (pkgs) anubis-fetch anubis;
         default = pkgs.anubis-fetch;
       };
       devShells = import ./nix/dev-shells.nix {inherit pkgs treefmt;};
