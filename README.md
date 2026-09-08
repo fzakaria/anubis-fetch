@@ -105,7 +105,7 @@ anubis-fetch [flags] URL
 | `--no-cache` | Disable reading and writing saved cookies |
 | `--help`, `-h` | Print usage and exit |
 
-```console
+```console?comments=true
 # HTML to stdout
 $ anubis-fetch https://lore.kernel.org/
 
