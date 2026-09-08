@@ -17,14 +17,15 @@ import (
 )
 
 const (
-	localBackendMarker   = "anubis-fetch local backend"
-	localStartupTimeout  = 30 * time.Second
-	localPollInterval    = 100 * time.Millisecond
-	localHTTPTimeout     = 2 * time.Second
-	localShutdownTimeout = 5 * time.Second
-	localFetchTimeout    = 60 * time.Second
-	wasmAssetPrefix      = "/.within.website/x/cmd/anubis/static/wasm"
-	wasmMagic            = "\x00asm"
+	localBackendMarker    = "anubis-fetch local backend"
+	localStartupTimeout   = 30 * time.Second
+	localPollInterval     = 100 * time.Millisecond
+	localHTTPTimeout      = 2 * time.Second
+	localShutdownTimeout  = 5 * time.Second
+	localFetchTimeout     = 60 * time.Second
+	wasmAssetPrefix       = "/.within.website/x/cmd/anubis/static/wasm"
+	wasmMagic             = "\x00asm"
+	wasmTestBitDifficulty = 8
 )
 
 func TestLocalAnubis(t *testing.T) {
@@ -38,7 +39,12 @@ func TestLocalAnubis(t *testing.T) {
 	for _, method := range []string{"fast", "sha256", "argon2id", "hashx"} {
 		t.Run(method, func(t *testing.T) {
 			// Inspect the challenge and assets before solving and reusing the auth cookie.
-			url := startLocalAnubis(t, serverBinary, method)
+			var serverArgs []string
+			if method == wasmSHA256 {
+				// A bit difficulty above the legacy cap must still use the WASM runner.
+				serverArgs = []string{"--difficulty", fmt.Sprint(wasmTestBitDifficulty)}
+			}
+			url := startLocalAnubis(t, serverBinary, method, serverArgs...)
 			page := readLocalURL(t, url)
 			challenge := parseChallenge(page)
 			if challenge == nil || challenge.method != method {
@@ -58,15 +64,14 @@ func TestLocalAnubis(t *testing.T) {
 			// Each method gets a fresh cache so the first fetch must solve the challenge.
 			t.Setenv("XDG_CACHE_HOME", t.TempDir())
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-			mode := "--browser"
-			if method == "fast" {
-				mode = "--no-browser"
-			}
-			assertLocalFetch(t, fetchBinary, 0, mode, url)
+			assertLocalFetch(t, fetchBinary, 0, "--no-browser", url)
 
-			// Until a WASM runner exists, a fresh browserless request must ask to escalate.
+			// Force another solve so cached cookies cannot hide a missing WASM runner.
+			assertLocalFetch(t, fetchBinary, 0, "--no-browser", "--no-cache", url)
+
+			// Retain the browser path as a separately exercised fallback.
 			if method != "fast" {
-				assertLocalFetch(t, fetchBinary, escalateExit, "--no-browser", "--no-cache", url)
+				assertLocalFetch(t, fetchBinary, 0, "--browser", "--no-cache", url)
 			}
 
 			// A saved auth cookie must make the next browserless fetch succeed.
@@ -75,7 +80,7 @@ func TestLocalAnubis(t *testing.T) {
 	}
 }
 
-func startLocalAnubis(t *testing.T, binary, method string) string {
+func startLocalAnubis(t *testing.T, binary, method string, extraArgs ...string) string {
 	// Allocate a loopback port and keep server logs for any failing subtest.
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -93,7 +98,8 @@ func startLocalAnubis(t *testing.T, binary, method string) string {
 	t.Cleanup(func() { log.Close() })
 
 	ctx, cancel := context.WithCancel(context.Background())
-	server := exec.CommandContext(ctx, binary, method, "--port", fmt.Sprint(port))
+	args := append([]string{method, "--port", fmt.Sprint(port)}, extraArgs...)
+	server := exec.CommandContext(ctx, binary, args...)
 	server.Stdout, server.Stderr = log, log
 	server.Cancel = func() error { return server.Process.Signal(syscall.SIGTERM) }
 	server.WaitDelay = localShutdownTimeout

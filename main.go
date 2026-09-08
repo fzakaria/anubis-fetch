@@ -2,9 +2,8 @@
 //
 // It handles two very different walls with one tool:
 //
-//   - Anubis (github.com/TecharoHQ/anubis) — a SHA-256 proof-of-work
-//     interstitial fronting lore.kernel.org, GNOME, kernel.org, and friends.
-//     anubis-fetch solves the proof-of-work in-process, no browser needed.
+//   - Anubis (github.com/TecharoHQ/anubis) — proof-of-work challenges.
+//     The legacy SHA-256 solver and WASM runner both execute in-process.
 //   - Cloudflare-style passive fingerprinting (TLS/JA3 + HTTP2) — cleared by
 //     impersonating a real Chrome at the transport layer via curl-impersonate
 //     (through the req library).
@@ -41,9 +40,9 @@ const (
 		"(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 )
 
-// solvableMethods are the Anubis challenge methods we can solve without a
-// browser. "fast" is the default; "slow" is a deprecated, identical variant.
-var solvableMethods = map[string]bool{"fast": true, "slow": true}
+// legacyMethods use the native SHA-256 solver and its hex-digit difficulty cap.
+// WASM methods use the server module and a time budget instead.
+var legacyMethods = map[string]bool{"fast": true, "slow": true}
 
 type options struct {
 	url       string

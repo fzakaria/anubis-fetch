@@ -9,12 +9,14 @@ in
     # Keep test-server and packaging changes out of the CLI source closure.
     src = pkgs.lib.fileset.toSource {
       root = ../.;
-      fileset =
-        pkgs.lib.fileset.fileFilter
-        (file: file.hasExt "go" || builtins.elem file.name ["go.mod" "go.sum"])
-        ../.;
+      fileset = pkgs.lib.fileset.unions [
+        (pkgs.lib.fileset.fileFilter
+          (file: file.hasExt "go" || builtins.elem file.name ["go.mod" "go.sum"])
+          ../.)
+        ../testdata
+      ];
     };
-    vendorHash = "sha256-+paffObhoUlxvyZ+1yn1PEAbzN9TwohuQ24SsT6otPc=";
+    vendorHash = "sha256-FnV7lp6mBVWgJ/m5SeSKOvzngFX5FN7UKbaoFUvrrE4=";
 
     subPackages = ["."];
 

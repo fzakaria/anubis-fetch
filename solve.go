@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,11 +20,17 @@ import (
 var challengeRe = regexp.MustCompile(
 	`(?s)<script id="anubis_challenge" type="application/json">(.*?)</script>`)
 
+// Asset metadata lives in separate JSON script blocks on the interstitial.
+var challengeMetadataRe = regexp.MustCompile(
+	`(?s)<script id="anubis_(version|base_prefix)" type="application/json">(.*?)</script>`)
+
 type challenge struct {
 	method     string
 	difficulty int
 	randomData string
 	id         string
+	version    string
+	basePrefix string
 }
 
 // isAnubis reports whether html is an Anubis interstitial (challenge or deny)
@@ -65,8 +72,21 @@ func parseChallenge(html string) *challenge {
 		randomData: data.Challenge.RandomData,
 		id:         data.Challenge.ID,
 	}
-	if c.method == "" || c.difficulty == 0 || c.randomData == "" || c.id == "" {
+	if c.method == "" || c.difficulty <= 0 || c.randomData == "" || c.id == "" {
 		return nil
+	}
+	// Read the deployment prefix and asset version without depending on script order.
+	for _, match := range challengeMetadataRe.FindAllStringSubmatch(html, -1) {
+		var value string
+		if err := json.Unmarshal([]byte(match[2]), &value); err != nil {
+			return nil
+		}
+		switch match[1] {
+		case "version":
+			c.version = value
+		case "base_prefix":
+			c.basePrefix = value
+		}
 	}
 	return c
 }
@@ -124,27 +144,47 @@ func fetchViaHTTP(o options) (html string, escalate bool) {
 	case c == nil:
 		fmt.Fprintln(os.Stderr, "anubis-fetch: unparseable/deny challenge; escalating to browser")
 		return "", true
-	case !solvableMethods[c.method]:
+	case !legacyMethods[c.method] && !isWASMMethod(c.method):
 		fmt.Fprintf(os.Stderr, "anubis-fetch: challenge method %q not solvable in-process; escalating\n", c.method)
 		return "", true
-	case c.difficulty > maxDifficulty:
+	case legacyMethods[c.method] && c.difficulty > maxDifficulty:
 		fmt.Fprintf(os.Stderr, "anubis-fetch: difficulty %d too high for in-process solve; escalating\n", c.difficulty)
 		return "", true
 	}
 
+	// Assets and submissions belong to the final challenge URL after redirects.
+	origin := resp.Response.Request.URL
 	start := time.Now()
-	nonce, response := solvePoW(c.randomData, c.difficulty)
+	var nonce uint64
+	var response string
+	if isWASMMethod(c.method) {
+		ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
+		defer cancel()
+		code, err := fetchWASM(ctx, client, origin, c)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "anubis-fetch: %v; escalating\n", err)
+			return "", true
+		}
+		n, digest, err := solveWASM(ctx, code, c.randomData, c.difficulty)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "anubis-fetch: %v; escalating\n", err)
+			return "", true
+		}
+		nonce, response = uint64(n), digest
+	} else {
+		n, digest := solvePoW(c.randomData, c.difficulty)
+		nonce, response = uint64(n), digest
+	}
 	elapsed := time.Since(start).Milliseconds()
 	if elapsed == 0 {
 		elapsed = 1
 	}
 
-	pass := *u
-	pass.Path = passChallengePath
+	pass := challengeEndpoint(origin, c, passChallengePath)
 	q := url.Values{}
 	q.Set("id", c.id)
 	q.Set("response", response)
-	q.Set("nonce", strconv.Itoa(nonce))
+	q.Set("nonce", strconv.FormatUint(nonce, 10))
 	q.Set("redir", o.url)
 	q.Set("elapsedTime", strconv.FormatInt(elapsed, 10))
 	pass.RawQuery = q.Encode()

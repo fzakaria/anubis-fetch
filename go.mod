@@ -6,6 +6,7 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20260704091341-6ca7914c3938
 	github.com/chromedp/chromedp v0.15.1
 	github.com/imroc/req/v3 v3.59.0
+	github.com/tetratelabs/wazero v1.12.1-0.20260714071631-236c2458ed22
 	golang.org/x/net v0.57.0
 	jaytaylor.com/html2text v0.0.0-20260303211410-1a4bdc82ecec
 )

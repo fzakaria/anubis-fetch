@@ -83,3 +83,12 @@ func TestIsAnubis(t *testing.T) {
 		t.Error("real page misdetected as Anubis")
 	}
 }
+
+func TestParseWASMMetadata(t *testing.T) {
+	// Parse the asset version and base prefix from the same scripts the browser reads.
+	html := sampleChallenge + `<script id="anubis_base_prefix" type="application/json">"/protected"</script>`
+	c := parseChallenge(html)
+	if c == nil || c.version != "1.25.0" || c.basePrefix != "/protected" {
+		t.Fatalf("unexpected metadata: %+v", c)
+	}
+}

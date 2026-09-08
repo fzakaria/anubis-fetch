@@ -7,7 +7,7 @@
   package = pkgs.anubis-fetch;
   anubis = pkgs.anubis;
 
-  # Exercise each challenge against Chromium and inspect the served WASM modules.
+  # Exercise native and browser solves against the source-built Anubis server.
   local-anubis = pkgs.anubis-fetch.overrideAttrs (_: {
     pname = "anubis-fetch-integration";
     ANUBIS_TEST_SERVER = "${pkgs.local-anubis}/bin/local-anubis";
