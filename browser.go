@@ -43,7 +43,12 @@ func fetchViaBrowser(o options) (string, error) {
 
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), execOpts...)
 	defer cancelAlloc()
-	ctx, cancelCtx := chromedp.NewContext(allocCtx)
+	// Dial the browser's websocket under the caller's timeout rather than
+	// chromedp's ten-second default, which a loaded machine can blow past
+	// while Chromium is still starting up.
+	ctx, cancelCtx := chromedp.NewContext(allocCtx,
+		chromedp.WithBrowserOption(chromedp.WithDialTimeout(o.timeout)),
+	)
 	defer cancelCtx()
 	ctx, cancelTimeout := context.WithTimeout(ctx, o.timeout)
 	defer cancelTimeout()
