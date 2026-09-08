@@ -105,15 +105,15 @@ anubis-fetch [flags] URL
 | `--no-cache` | Disable reading and writing saved cookies |
 | `--help`, `-h` | Print usage and exit |
 
-```console?comments=true
+```bash
 # HTML to stdout
-$ anubis-fetch https://lore.kernel.org/
+anubis-fetch https://lore.kernel.org/
 
 # Plain text
-$ anubis-fetch --text https://lore.kernel.org/
+anubis-fetch --text https://lore.kernel.org/
 
 # Require the HTTP path; check for exit status 3
-$ anubis-fetch --no-browser https://lore.kernel.org/
+anubis-fetch --no-browser https://lore.kernel.org/
 ```
 
 ### Cookie persistence
