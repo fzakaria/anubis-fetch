@@ -5,143 +5,140 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 ```console
-$ nix run github:fzakaria/anubis-fetch -- https://lore.kernel.org/linux-mm/some-thread/T/
+$ nix run github:fzakaria/anubis-fetch -- --text https://lore.kernel.org/
 ```
 
-> A fast (Go) CLI to fetch URLs from behind **[Anubis](https://github.com/TecharoHQ/anubis)** proof-of-work walls and **Cloudflare** fingerprint checks — solving the challenge in-process, and only reaching for a real browser when it has to.
+A Go CLI for fetching URLs behind [Anubis](https://github.com/TecharoHQ/anubis)
+proof-of-work challenges. It solves SHA-256 challenges in-process and falls
+back to headless Chromium for other Anubis methods.
 
-A growing number of sites — `lore.kernel.org`, GNOME, `kernel.org`, and many more — sit behind [Anubis](https://github.com/TecharoHQ/anubis), a bot-wall that makes your browser solve a SHA-256 proof-of-work before it serves any content. It's great at stopping scrapers. It's also great at stopping *you* when you just want to `curl` a mailing-list thread:
-
-```console
-$ curl -s https://lore.kernel.org/linux-mm/some-thread/T/ | grep -o '<title>.*</title>'
-<title>Making sure you&#39;re not a bot!</title>   # 🤢
-```
-
-`anubis-fetch` gets you the actual page:
-
-```console
-$ anubis-fetch https://lore.kernel.org/linux-mm/some-thread/T/ | grep -o '<title>.*</title>'
-<title>[PATCH 0/2] ...</title>                     # 🥳
-```
+Sites such as `lore.kernel.org` and `kernel.org` use Anubis to require proof
+of work before serving a page. A plain HTTP client can receive the challenge
+page instead of the requested content. `anubis-fetch` solves the challenge,
+submits the answer, and writes the resulting page to stdout.
 
 ## How it works
 
-Bot-walls live at two different layers, and `anubis-fetch` handles both, cheapest step first:
+1. Reuse a saved cookie. Anubis issues an auth cookie after a successful
+   challenge. The tool saves cookies per host and sends them on later requests.
+2. Solve the proof of work in-process. The HTTP client uses
+   [`req`](https://github.com/imroc/req) to impersonate Chrome's TLS and HTTP/2
+   fingerprint. This can help with passive bot checks, including Cloudflare's.
+   For Anubis' `fast` and `slow` methods, the tool computes a nonce and submits
+   the answer directly.
+3. Fall back to a browser. Headless Chromium, driven by
+   [`chromedp`](https://github.com/chromedp/chromedp), runs the challenge code
+   served by the site.
 
-1. **Reuse a saved cookie.** Anubis hands out a signed auth cookie (`techaro.lol-anubis-auth`) after you pass once; a browser isn't re-challenged on the next visit, and neither are we. Cookies are persisted per host (see [Cookie persistence](#cookie-persistence)).
-2. **Solve the proof-of-work in-process.** The request goes out over [`req`](https://github.com/imroc/req) impersonating a real Chrome — same TLS/JA3 + HTTP/2 fingerprint — which also clears **Cloudflare's passive fingerprinting**. If the response is an Anubis challenge, we brute-force the nonce and submit it. No browser, ~0.6s.
-3. **Fall back to a real browser.** For anything the fast path can't do, we drive headless Chromium via [`chromedp`](https://github.com/chromedp/chromedp), which runs whatever JavaScript the site serves.
+Browser fallback handles Anubis' `preact`, `metarefresh`, and WASM methods.
+The tool also falls back when the difficulty exceeds its native solver's
+limit or the server rejects a solution. Use `--browser` to start with Chromium,
+or `--no-browser` to require the HTTP path.
 
-> [!NOTE]
-> The fallback fires for: Anubis' `preact` / `metarefresh` challenge methods, an unknown/future method, a difficulty too high to brute-force, a rejected solution, **or a Cloudflare _active_ JS challenge** (Managed Challenge / Turnstile / "I'm Under Attack"). Impersonation clears *passive* Cloudflare; only a browser clears the active JS tiers. So `anubis-fetch` degrades to "slower", never "broken".
+### Why not use a browser for everything?
 
-### Why not just a browser for everything?
+The native solver avoids starting a browser process for each fetch. Chromium
+is still included in the Nix package for challenges that need the fallback.
 
-Because it's ~4× slower and drags a ~200&nbsp;MB Chromium into every fetch. The in-process solver is the common case; the browser is the safety net.
+Approximate fetch times for the original SHA-256 path:
 
 | Path | Wall time | Needs Chromium |
 | --- | --- | --- |
-| Solver (Anubis proof-of-work) | ~0.6s | no |
-| Browser fallback | ~2.0s | yes |
+| In-process SHA-256 solver | ~0.6s | No |
+| Browser fallback | ~2.0s | Yes |
+
+Actual times depend on the network, hardware, and challenge difficulty.
+WASM methods have different costs; these figures do not describe WASM performance.
 
 ## The Anubis proof-of-work, briefly
 
-Anubis embeds a challenge as JSON in the page:
+For the `fast` and `slow` methods, Anubis embeds the challenge in the page:
 
 ```json
 {"rules":{"algorithm":"fast","difficulty":4},
- "challenge":{"id":"…","method":"fast","randomData":"6214bd88…","difficulty":4}}
+ "challenge":{"id":"...","method":"fast","randomData":"6214bd88...","difficulty":4}}
 ```
 
-Solving it means finding a nonce such that `hex(sha256(randomData ‖ nonce))` begins with `difficulty` zero characters (the nonce is its base-10 string). We then hand the answer back:
+The solver looks for a nonce such that `hex(sha256(randomData || nonce))`
+begins with `difficulty` zero characters. The nonce is encoded as a decimal
+string. The answer is submitted to Anubis:
 
-```
-GET /.within.website/x/cmd/anubis/api/pass-challenge?id=…&response=<hash>&nonce=<n>&redir=<url>&elapsedTime=<ms>
+```text
+GET /.within.website/x/cmd/anubis/api/pass-challenge?id=...&response=<hash>&nonce=<n>&redir=<url>&elapsedTime=<ms>
 ```
 
-…which sets the auth cookie and redirects to the real page. Difficulty 4 (the default on `lore`/`kernel.org`/GNOME) is ~65k hashes — sub-millisecond in Go.
+A successful response sets an auth cookie and redirects to the requested
+page. Difficulty 4 requires about 65,536 hashes on average.
 
 ## Installation
 
-Run it directly:
+Run directly:
 
 ```console
 $ nix run github:fzakaria/anubis-fetch -- <url>
 ```
 
-Install into your profile:
-
-```console
-$ nix profile install github:fzakaria/anubis-fetch
-```
-
-Or add it to your own flake:
+Or add the input to your flake:
 
 ```nix
 {
   inputs.anubis-fetch.url = "github:fzakaria/anubis-fetch";
-  # then, e.g. in home.packages / environment.systemPackages:
-  #   inputs.anubis-fetch.packages.${system}.default
 }
 ```
 
+Add `inputs.anubis-fetch.packages.${system}.default` to
+`home.packages` or `environment.systemPackages`.
+
 ## Usage
 
-```console
-$ anubis-fetch [flags] URL
+```text
+anubis-fetch [flags] URL
 ```
 
-| Flag | Meaning |
+| Flag | Effect |
 | --- | --- |
-| `--text` | render readable plain text instead of HTML |
-| `--timeout MS` | per-step timeout in milliseconds (default `30000`) |
-| `--ua STRING` | override the User-Agent |
-| `--browser` | skip the solver; go straight to the headless browser |
-| `--no-browser` | never use the browser; exit `3` if the solve can't apply |
-| `--no-cache` | don't read or write the persistent cookie jar |
+| `--text` | Convert HTML to plain text |
+| `--timeout MS` | Set the per-step timeout in milliseconds; default `30000` |
+| `--ua STRING` | Set the User-Agent |
+| `--browser` | Use Chromium directly |
+| `--no-browser` | Exit `3` if the HTTP solver needs browser fallback |
+| `--no-cache` | Disable reading and writing saved cookies |
+| `--help`, `-h` | Print usage and exit |
 
 ```console
 # HTML to stdout
-$ anubis-fetch https://lore.kernel.org/linux-mm/some-thread/T/
+$ anubis-fetch https://lore.kernel.org/
 
-# readable plain text
-$ anubis-fetch --text https://lore.kernel.org/linux-mm/some-thread/T/
+# Plain text
+$ anubis-fetch --text https://lore.kernel.org/
 
-# lean/fast only — useful in scripts; exits 3 if it would need a browser
-$ anubis-fetch --no-browser https://example.com/ && echo "got it"
+# Require the HTTP path; check for exit status 3
+$ anubis-fetch --no-browser https://lore.kernel.org/
 ```
 
 ### Cookie persistence
 
-After a successful fetch, the auth cookie is written to
-`$XDG_CACHE_HOME/anubis-fetch/cookies/<host>.json` (falling back to
-`~/.cache/…`). The next run for that host is let straight through — no
-proof-of-work, no browser — exactly like a browser revisit. Cookies obtained
-via the browser fallback are saved too, so a subsequent run can take the fast
-HTTP path. Use `--no-cache` to disable, or just delete the file to force a
-re-solve.
+Cookies are saved per host in
+`$XDG_CACHE_HOME/anubis-fetch/cookies/<host>.json`, or
+`~/.cache/anubis-fetch/cookies/<host>.json` when `XDG_CACHE_HOME` is unset.
+A valid auth cookie can let subsequent requests skip the challenge.
+Cookies obtained through Chromium are saved too.
+
+Use `--no-cache` to fetch without saved cookies, or delete the host's file
+to discard them. An expired or rejected cookie requires a new challenge.
 
 ## Development
 
-Everything is wired through the flake:
-
 ```console
-$ nix develop          # dev shell: go, gopls, chromium, treefmt
-$ go test ./...        # unit tests (hermetic — no network)
-$ nix build            # build the wrapped binary
-$ nix flake check      # build + tests + formatting
-$ nix fmt              # format Go + Nix via treefmt (gofmt + alejandra)
+$ nix develop          # Go, gopls, Chromium, treefmt
+$ go test ./...        # Go unit tests
+$ nix build            # Packaged CLI
+$ nix flake check      # Builds, tests, and formatting
+$ nix fmt              # Format Go and Nix
 ```
 
-The proof-of-work implementation is pinned against Anubis' own published test
-vector (`sha256("hunter" + "0")`) so a drift in the hash construction fails a
-unit test rather than silently returning garbage.
+## Dependencies
 
-## Prior art & thanks
-
-- [TecharoHQ/anubis](https://github.com/TecharoHQ/anubis) — the bot-wall this
-  politely negotiates with.
-- [imroc/req](https://github.com/imroc/req) — the HTTP client whose Chrome
-  impersonation clears passive Cloudflare fingerprinting.
-- [chromedp/chromedp](https://github.com/chromedp/chromedp) — drives the
-  headless-browser fallback.
+- [TecharoHQ/anubis](https://github.com/TecharoHQ/anubis): the challenge server.
+- [imroc/req](https://github.com/imroc/req): the HTTP client with Chrome impersonation.
+- [chromedp/chromedp](https://github.com/chromedp/chromedp): the Chromium driver.
