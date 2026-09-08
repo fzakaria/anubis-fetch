@@ -9,8 +9,8 @@ $ nix run github:fzakaria/anubis-fetch -- --text https://lore.kernel.org/
 ```
 
 A Go CLI for fetching URLs behind [Anubis](https://github.com/TecharoHQ/anubis)
-proof-of-work challenges. It solves SHA-256 challenges in-process and falls
-back to headless Chromium for other Anubis methods.
+proof-of-work challenges. It solves legacy SHA-256 and WASM challenges
+in-process, with headless Chromium as a fallback.
 
 Sites such as `lore.kernel.org` and `kernel.org` use Anubis to require proof
 of work before serving a page. A plain HTTP client can receive the challenge
@@ -25,15 +25,18 @@ submits the answer, and writes the resulting page to stdout.
    [`req`](https://github.com/imroc/req) to impersonate Chrome's TLS and HTTP/2
    fingerprint. This can help with passive bot checks, including Cloudflare's.
    For Anubis' `fast` and `slow` methods, the tool computes a nonce and submits
-   the answer directly.
+   the answer directly. For the WASM methods `sha256`, `argon2id`, and `hashx`,
+   it downloads the site's module and runs it in Go with
+   [`wazero`](https://github.com/tetratelabs/wazero).
 3. Fall back to a browser. Headless Chromium, driven by
    [`chromedp`](https://github.com/chromedp/chromedp), runs the challenge code
    served by the site.
 
-Browser fallback handles Anubis' `preact`, `metarefresh`, and WASM methods.
-The tool also falls back when the difficulty exceeds its native solver's
-limit or the server rejects a solution. Use `--browser` to start with Chromium,
-or `--no-browser` to require the HTTP path.
+Browser fallback handles Anubis' `preact` and `metarefresh` methods.
+The tool also falls back when legacy SHA-256 difficulty exceeds its limit,
+WASM execution fails or times out, or Anubis rejects a solution.
+Use `--browser` to start with Chromium, or `--no-browser` to require the
+HTTP path. All three WASM methods work with `--no-browser`.
 
 ### Why not use a browser for everything?
 
@@ -47,8 +50,19 @@ Approximate fetch times for the original SHA-256 path:
 | In-process SHA-256 solver | ~0.6s | No |
 | Browser fallback | ~2.0s | Yes |
 
-Actual times depend on the network, hardware, and challenge difficulty.
-WASM methods have different costs; these figures do not describe WASM performance.
+WASM fetch times against a local Anubis server at difficulty 2:
+
+| WASM method | Median wall time | Needs Chromium |
+| --- | --- | --- |
+| SHA-256 | 0.025s | No |
+| Argon2id | 1.45s | No |
+| HashX | 0.041s | No |
+
+These are medians of five fetches with `--no-browser --no-cache` on an AMD
+Ryzen 7 7840U. Each fetch includes downloading and compiling the module,
+solving a fresh challenge, and fetching the page over loopback. Argon2id
+ranged from 0.55s to 2.33s. Remote fetches add network latency; hardware and
+challenge difficulty also affect the times.
 
 ## The Anubis proof-of-work, briefly
 
@@ -69,6 +83,10 @@ GET /.within.website/x/cmd/anubis/api/pass-challenge?id=...&response=<hash>&nonc
 
 A successful response sets an auth cookie and redirects to the requested
 page. Difficulty 4 requires about 65,536 hashes on average.
+
+WASM challenges use the same submission endpoint, but the downloaded module
+defines the hash and difficulty rules. Their difficulty numbers are not
+directly comparable to the legacy SHA-256 method.
 
 ## Installation
 
@@ -142,3 +160,4 @@ $ nix fmt              # Format Go and Nix
 - [TecharoHQ/anubis](https://github.com/TecharoHQ/anubis): the challenge server.
 - [imroc/req](https://github.com/imroc/req): the HTTP client with Chrome impersonation.
 - [chromedp/chromedp](https://github.com/chromedp/chromedp): the Chromium driver.
+- [tetratelabs/wazero](https://github.com/tetratelabs/wazero): the Go WebAssembly runtime.
