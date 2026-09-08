@@ -54,15 +54,9 @@ WASM fetch times against a local Anubis server at difficulty 2:
 
 | WASM method | Median wall time | Needs Chromium |
 | --- | --- | --- |
-| SHA-256 | 0.025s | No |
-| Argon2id | 1.45s | No |
-| HashX | 0.041s | No |
-
-These are medians of five fetches with `--no-browser --no-cache` on an AMD
-Ryzen 7 7840U. Each fetch includes downloading and compiling the module,
-solving a fresh challenge, and fetching the page over loopback. Argon2id
-ranged from 0.55s to 2.33s. Remote fetches add network latency; hardware and
-challenge difficulty also affect the times.
+| SHA-256 | ~0.025s | No |
+| Argon2id | ~0.55s-2.33s | No |
+| HashX | ~0.041s | No |
 
 ## The Anubis proof-of-work, briefly
 
