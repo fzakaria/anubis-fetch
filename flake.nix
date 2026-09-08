@@ -23,7 +23,7 @@
       treefmt = import ./nix/formatter.nix {inherit self pkgs;};
     in {
       packages = {
-        inherit (pkgs) anubis-fetch anubis;
+        inherit (pkgs) anubis-fetch anubis local-anubis;
         default = pkgs.anubis-fetch;
       };
       devShells = import ./nix/dev-shells.nix {inherit pkgs treefmt;};
