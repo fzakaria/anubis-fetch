@@ -115,7 +115,7 @@ func fetchViaBrowser(o options) (string, error) {
 
 	if !o.noCache && len(cookies) > 0 {
 		if u, perr := url.Parse(o.url); perr == nil {
-			writeCookies(u.Host, toHTTPCookies(cookies))
+			writeCookies(u.Host, toHTTPCookies(cookies), ua)
 		}
 	}
 	return html, err

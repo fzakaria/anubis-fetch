@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,42 @@ func TestFetchViaHTTPEscalatesOnCloudflareChallenge(t *testing.T) {
 	html, escalate := fetchViaHTTP(options{url: srv.URL, timeout: 5 * time.Second, noCache: true})
 	if !escalate {
 		t.Fatalf("Cloudflare challenge not escalated; got page %q", html)
+	}
+}
+
+// TestFetchViaHTTPReusesStoredUserAgent stores a clearance cookie together
+// with the User-Agent it was issued under, then serves a page that only lets
+// that exact cookie+UA pair through. The HTTP path must send the stored UA so
+// a revisit skips the browser, and must keep the UA on disk afterwards.
+func TestFetchViaHTTPReusesStoredUserAgent(t *testing.T) {
+	const (
+		clearanceName  = "cf_clearance"
+		clearanceValue = "tok"
+		browserUA      = "Mozilla/5.0 (X11; Linux x86_64) Chrome/149.0.0.0"
+		realPage       = "<html><title>Debug Symbols</title></html>"
+	)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := r.Cookie(clearanceName)
+		if err == nil && c.Value == clearanceValue && r.UserAgent() == browserUA {
+			_, _ = w.Write([]byte(realPage))
+			return
+		}
+		w.Header().Set(cfMitigatedHeader, cfMitigatedChallenge)
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(cloudflareChallengeBody))
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	writeCookies(u.Host, []*http.Cookie{{Name: clearanceName, Value: clearanceValue}}, browserUA)
+
+	html, escalate := fetchViaHTTP(options{url: srv.URL, timeout: 5 * time.Second})
+	if escalate || html != realPage {
+		t.Fatalf("stored cookie+UA not reused: escalate=%v html=%q", escalate, html)
+	}
+	if got := loadCookies(newJar(), u); got != browserUA {
+		t.Errorf("User-Agent on disk after revisit = %q, want %q", got, browserUA)
 	}
 }
 

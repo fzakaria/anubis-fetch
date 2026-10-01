@@ -32,7 +32,8 @@ submits the answer, and writes the resulting page to stdout.
    [`chromedp`](https://github.com/chromedp/chromedp), runs the challenge code
    served by the site.
 
-Browser fallback handles Anubis' `preact` and `metarefresh` methods.
+Browser fallback handles Anubis' `preact` and `metarefresh` methods, and
+Cloudflare challenge pages (responses with `cf-mitigated: challenge`).
 The tool also falls back when legacy SHA-256 difficulty exceeds its limit,
 WASM execution fails or times out, or Anubis rejects a solution.
 Use `--browser` to start with Chromium, or `--no-browser` to require the
@@ -143,7 +144,10 @@ Cookies are saved per host in
 `$XDG_CACHE_HOME/anubis-fetch/cookies/<host>.json`, or
 `~/.cache/anubis-fetch/cookies/<host>.json` when `XDG_CACHE_HOME` is unset.
 A valid auth cookie can let subsequent requests skip the challenge.
-Cookies obtained through Chromium are saved too.
+Cookies obtained through Chromium are saved too, along with Chromium's
+User-Agent. Cloudflare only honors `cf_clearance` under the User-Agent that
+earned it, so later HTTP requests to that host send the saved User-Agent
+unless `--ua` overrides it.
 
 Use `--no-cache` to fetch without saved cookies, or delete the host's file
 to discard them. An expired or rejected cookie requires a new challenge.

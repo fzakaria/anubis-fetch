@@ -129,13 +129,17 @@ func fetchViaHTTP(o options) (html string, escalate bool) {
 		return "", true
 	}
 
+	// An explicit --ua wins; otherwise resend the UA the stored cookies were
+	// issued under, since Cloudflare rejects cf_clearance under any other.
 	jar := newJar()
+	storedUA := ""
 	if !o.noCache {
-		loadCookies(jar, u)
+		storedUA = loadCookies(jar, u)
 	}
+	ua := firstNonEmpty(o.ua, storedUA)
 	client := req.C().ImpersonateChrome().SetTimeout(o.timeout).SetCookieJar(jar)
-	if o.ua != "" {
-		client.SetCommonHeader("User-Agent", o.ua)
+	if ua != "" {
+		client.SetCommonHeader("User-Agent", ua)
 	}
 
 	resp, err := client.R().Get(o.url)
@@ -155,7 +159,7 @@ func fetchViaHTTP(o options) (html string, escalate bool) {
 	// Not walled, or a stored cookie let us straight through.
 	if !isAnubis(html) {
 		if !o.noCache {
-			saveCookies(jar, u)
+			saveCookies(jar, u, ua)
 		}
 		return html, false
 	}
@@ -221,7 +225,7 @@ func fetchViaHTTP(o options) (html string, escalate bool) {
 		return "", true
 	}
 	if !o.noCache {
-		saveCookies(jar, u) // now holds the Anubis auth cookie
+		saveCookies(jar, u, ua) // now holds the Anubis auth cookie
 	}
 	return html2, false
 }
