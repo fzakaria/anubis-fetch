@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -24,6 +25,13 @@ var challengeRe = regexp.MustCompile(
 var challengeMetadataRe = regexp.MustCompile(
 	`(?s)<script id="anubis_(version|base_prefix)" type="application/json">(.*?)</script>`)
 
+// Cloudflare tags every response that carries one of its interactive
+// challenges (managed, JS, or Turnstile interstitial) with this header.
+const (
+	cfMitigatedHeader    = "Cf-Mitigated"
+	cfMitigatedChallenge = "challenge"
+)
+
 type challenge struct {
 	method     string
 	difficulty int
@@ -38,6 +46,12 @@ type challenge struct {
 func isAnubis(html string) bool {
 	return strings.Contains(html, `id="anubis_challenge"`) ||
 		strings.Contains(html, `id="anubis_version"`)
+}
+
+// isCloudflareChallenge reports whether resp is a Cloudflare challenge
+// interstitial. Only a real browser can clear one, so the caller escalates.
+func isCloudflareChallenge(resp *http.Response) bool {
+	return resp.Header.Get(cfMitigatedHeader) == cfMitigatedChallenge
 }
 
 // parseChallenge extracts the challenge parameters, or nil if the page has no
@@ -130,6 +144,13 @@ func fetchViaHTTP(o options) (html string, escalate bool) {
 		return "", true
 	}
 	html = resp.String()
+
+	// Cloudflare's active challenge needs JavaScript; impersonating Chrome's
+	// TLS fingerprint only clears the passive check.
+	if isCloudflareChallenge(resp.Response) {
+		fmt.Fprintln(os.Stderr, "anubis-fetch: Cloudflare challenge; escalating to browser")
+		return "", true
+	}
 
 	// Not walled, or a stored cookie let us straight through.
 	if !isAnubis(html) {
